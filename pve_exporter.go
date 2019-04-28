@@ -40,10 +40,24 @@ type node struct {
 	DiskTotal json.Number `json:"maxdisk"`
 	DiskFree  json.Number `json:"disk"`
 }
-
 type nodeResponse struct {
 	Data []node `json:"data"`
 }
+
+type nodeRRDData struct {
+	CPU	json.Number `json:"cpu"`
+	IOWait	json.Number `json:"iowait"`
+	LoadAvg	json.Number `json:"loadavg"`
+	NetIn	json.Number `json:"netin"`
+	NetOut	json.Number `json:"netout"`
+	SwapUsed	json.Number `json:"swapused"`
+	SwapTotal	json.Number `json:"swaptotal"`
+	Time	json.Number `json:"time"`
+}
+type nodeRRDResponse struct {
+	Data []nodeRRDData `json:"data"`
+}
+
 
 type lxc struct {
 	Name      string  `json:"name"`
@@ -193,6 +207,21 @@ func (c *Client) GetNodes() (data []node, err error) {
 
 	return nodeData.Data, nil
 }
+func (c *Client) GetNodeRRD(name string) (data []nodeRRDData, err error) {
+
+	var respData nodeRRDResponse
+
+	resp, err := c.Do("nodes/"+name+"/rrddata?timeframe=hour")
+	if err != nil {
+		return nil, err
+	}
+
+	if err := json.Unmarshal(resp, &respData); err != nil {
+		return nil, err
+	}
+
+	return respData.Data, nil
+}
 
 func (c *Client) GetLxc(nodeID string) (data []lxc, err error) {
 
@@ -233,6 +262,7 @@ var (
 	versionUrl = "https://github.com/wakeful/pve_exporter"
 
 	showVersion   = flag.Bool("version", false, "show version and exit")
+	oneShot       = flag.Bool("one-shot", false, "collect data, output to stdout, exit.")
 	listenAddress = flag.String("listen-address", ":9090", "Address on which to expose metrics.")
 	metricsPath   = flag.String("telemetry-path", "/metrics", "Path under which to expose metrics.")
 	pveUrl        = flag.String("pve-url", "https://127.0.0.1:8006", "URL to your PVE control panel")
@@ -269,6 +299,41 @@ var (
 	clusterNodeDiskFree = prometheus.NewDesc(
 		prometheus.BuildFQName(nameSpace, "nodes", "disk_free"),
 		"Free disk space on each node",
+		[]string{"node"}, nil,
+	)
+	clusterNodeIOWait = prometheus.NewDesc(
+		prometheus.BuildFQName(nameSpace, "nodes", "io_wait"),
+		"IOWait on each node",
+		[]string{"node"}, nil,
+	)
+	clusterNodeCPU = prometheus.NewDesc(
+		prometheus.BuildFQName(nameSpace, "nodes", "cpu"),
+		"CPU on each node",
+		[]string{"node"}, nil,
+	)
+	clusterNodeLoadAvg = prometheus.NewDesc(
+		prometheus.BuildFQName(nameSpace, "nodes", "load_avg"),
+		"LoadAvg on each node",
+		[]string{"node"}, nil,
+	)
+	clusterNodeNetIn = prometheus.NewDesc(
+		prometheus.BuildFQName(nameSpace, "nodes", "net_in"),
+		"NetIn on each node",
+		[]string{"node"}, nil,
+	)
+	clusterNodeNetOut = prometheus.NewDesc(
+		prometheus.BuildFQName(nameSpace, "nodes", "net_out"),
+		"NetOut on each node",
+		[]string{"node"}, nil,
+	)
+	clusterNodeSwapUsed = prometheus.NewDesc(
+		prometheus.BuildFQName(nameSpace, "nodes", "swap_used"),
+		"SwapUsed on each node",
+		[]string{"node"}, nil,
+	)
+	clusterNodeSwapTotal = prometheus.NewDesc(
+		prometheus.BuildFQName(nameSpace, "nodes", "swap_total"),
+		"SwapTotal on each node",
 		[]string{"node"}, nil,
 	)
 	clusterLxcUp = prometheus.NewDesc(
@@ -441,6 +506,47 @@ func (e Exporter) Collect(ch chan<- prometheus.Metric) {
 				clusterNodeDiskFree, prometheus.GaugeValue, jNumberToFloat(node.DiskFree), node.Name,
 			)
 
+			rList, err := e.pve.GetNodeRRD(node.Name);
+			if (err != nil) {
+				log.Errorln(err)
+			} else {
+				// this sorting might be superfluous, i've always seen ordered json.
+				// but pvesh doesn't print sorted results, and nothing in the API
+				// descriptions guarantees sorting.
+				newestIdx := 0
+				var newestVal json.Number
+				for idx, r := range rList {
+					if (r.Time>newestVal) {
+						newestVal=r.Time
+						newestIdx=idx
+					}
+				}
+				if (len(rList)>0) {
+					r:=rList[newestIdx]
+					ch <- prometheus.MustNewConstMetric(
+						clusterNodeIOWait, prometheus.GaugeValue, jNumberToFloat(r.IOWait), node.Name,
+					)
+					ch <- prometheus.MustNewConstMetric(
+						clusterNodeCPU, prometheus.GaugeValue, jNumberToFloat(r.CPU), node.Name,
+					)
+					ch <- prometheus.MustNewConstMetric(
+						clusterNodeLoadAvg, prometheus.GaugeValue, jNumberToFloat(r.LoadAvg), node.Name,
+					)
+					ch <- prometheus.MustNewConstMetric(
+						clusterNodeNetIn, prometheus.GaugeValue, jNumberToFloat(r.NetIn), node.Name,
+					)
+					ch <- prometheus.MustNewConstMetric(
+						clusterNodeNetOut, prometheus.GaugeValue, jNumberToFloat(r.NetOut), node.Name,
+					)
+					ch <- prometheus.MustNewConstMetric(
+						clusterNodeSwapUsed, prometheus.GaugeValue, jNumberToFloat(r.SwapUsed), node.Name,
+					)
+					ch <- prometheus.MustNewConstMetric(
+						clusterNodeSwapTotal, prometheus.GaugeValue, jNumberToFloat(r.SwapTotal), node.Name,
+					)
+				}
+			}
+
 			qemuList, err := e.pve.GetQemu(node.Name)
 			if err != nil {
 				log.Errorln(err)
@@ -571,16 +677,36 @@ func main() {
 	}
 
 	log.Infoln("Starting pve_exporter")
+	if *oneShot {
+		// this is very crude, but good enough.
+		e:=NewExporter()
+		ch := make(chan prometheus.Metric);
+		go func() {
+			e.Collect(ch);
+			close(ch)
+		}()
+		for {
+			x, ok:= <-ch
+			if !ok {
+				break
+			}
+			d:=x.Desc();
+			fmt.Printf("# HELP %s %s\n",d.String(),"");
+			fmt.Printf("%+v\n",x);
 
-	prometheus.Unregister(prometheus.NewGoCollector())
-	prometheus.Unregister(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
-	prometheus.MustRegister(NewExporter())
+		}
 
-	http.Handle(*metricsPath, promhttp.Handler())
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, *metricsPath, http.StatusMovedPermanently)
-	})
+	} else {
+		prometheus.Unregister(prometheus.NewGoCollector())
+		prometheus.Unregister(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
+		prometheus.MustRegister(NewExporter())
 
-	log.Fatal(http.ListenAndServe(*listenAddress, nil))
+		http.Handle(*metricsPath, promhttp.Handler())
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, *metricsPath, http.StatusMovedPermanently)
+		})
+
+		log.Fatal(http.ListenAndServe(*listenAddress, nil))
+	}
 
 }
