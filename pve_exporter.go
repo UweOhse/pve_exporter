@@ -36,9 +36,9 @@ type node struct {
 	UpTime    json.Number `json:"uptime"`
 	CpuTotal  json.Number `json:"maxcpu"`
 	RamTotal  json.Number `json:"maxmem"`
-	RamFree   json.Number `json:"mem"`
+	RamUsed   json.Number `json:"mem"`
 	DiskTotal json.Number `json:"maxdisk"`
-	DiskFree  json.Number `json:"disk"`
+	DiskUsed  json.Number `json:"disk"`
 }
 type nodeResponse struct {
 	Data []node `json:"data"`
@@ -65,13 +65,13 @@ type lxc struct {
 	UpTime    json.Number `json:"uptime"`
 	CpuCount  json.Number `json:"cpus"`
 	DiskTotal json.Number  `json:"maxdisk"`
-	DiskFree  json.Number  `json:"disk"`
+	DiskUsed  json.Number  `json:"disk"`
 	DiskRead  json.Number `json:"diskread"`
 	DiskWrite json.Number `json:"diskwrite"`
 	RamTotal  json.Number `json:"maxmem"`
-	RamFree   json.Number `json:"mem"`
+	RamUsed   json.Number `json:"mem"`
 	SwapTotal json.Number `json:"maxswap"`
-	SwapFree  json.Number `json:"swap"`
+	SwapUsed  json.Number `json:"swap"`
 	NetIn     json.Number `json:"netin"`
 	NetOut    json.Number `json:"netout"`
 }
@@ -86,11 +86,11 @@ type qemu struct {
 	UpTime    json.Number `json:"uptime"`
 	CpuCount  json.Number `json:"cpus"`
 	DiskTotal json.Number `json:"maxdisk"`
-	DiskFree  json.Number `json:"disk"`
+	DiskUsed  json.Number `json:"disk"`
 	DiskRead  json.Number `json:"diskread"`
 	DiskWrite json.Number `json:"diskwrite"`
 	RamTotal  json.Number `json:"maxmem"`
-	RamFree   json.Number `json:"mem"`
+	RamUsed   json.Number `json:"mem"`
 	NetIn     json.Number `json:"netin"`
 	NetOut    json.Number `json:"netout"`
 }
@@ -288,7 +288,12 @@ var (
 	)
 	clusterNodeRamFree = prometheus.NewDesc(
 		prometheus.BuildFQName(nameSpace, "nodes", "ram_free"),
-		"Free RAM on each node",
+		"*Used* RAM on each node (legacy, badly named)",
+		[]string{"node"}, nil,
+	)
+	clusterNodeRamUsed = prometheus.NewDesc(
+		prometheus.BuildFQName(nameSpace, "nodes", "ram_used"),
+		"Used RAM on each node",
 		[]string{"node"}, nil,
 	)
 	clusterNodeDiskTotal = prometheus.NewDesc(
@@ -298,7 +303,12 @@ var (
 	)
 	clusterNodeDiskFree = prometheus.NewDesc(
 		prometheus.BuildFQName(nameSpace, "nodes", "disk_free"),
-		"Free disk space on each node",
+		"*Used* disk space on each node (legacy, badly named)",
+		[]string{"node"}, nil,
+	)
+	clusterNodeDiskUsed = prometheus.NewDesc(
+		prometheus.BuildFQName(nameSpace, "nodes", "disk_used"),
+		"Used disk space on each node",
 		[]string{"node"}, nil,
 	)
 	clusterNodeIOWait = prometheus.NewDesc(
@@ -358,7 +368,12 @@ var (
 	)
 	clusterLxcDiskFree = prometheus.NewDesc(
 		prometheus.BuildFQName(nameSpace, "lxc", "disk_free"),
-		"Free disk space for each LXC",
+		"*Used* disk space for each LXC (legacy, badly named)",
+		[]string{"node", "lxc"}, nil,
+	)
+	clusterLxcDiskUsed = prometheus.NewDesc(
+		prometheus.BuildFQName(nameSpace, "lxc", "disk_used"),
+		"Used disk space for each LXC",
 		[]string{"node", "lxc"}, nil,
 	)
 	clusterLxcDiskRead = prometheus.NewDesc(
@@ -378,7 +393,12 @@ var (
 	)
 	clusterLxcRamFree = prometheus.NewDesc(
 		prometheus.BuildFQName(nameSpace, "lxc", "ram_free"),
-		"LXC Free RAM",
+		"LXC *Used* RAM (legacy, badly named)",
+		[]string{"node", "lxc"}, nil,
+	)
+	clusterLxcRamUsed = prometheus.NewDesc(
+		prometheus.BuildFQName(nameSpace, "lxc", "ram_used"),
+		"LXC Used RAM",
 		[]string{"node", "lxc"}, nil,
 	)
 	clusterLxcSwapTotal = prometheus.NewDesc(
@@ -388,7 +408,12 @@ var (
 	)
 	clusterLxcSwapFree = prometheus.NewDesc(
 		prometheus.BuildFQName(nameSpace, "lxc", "swap_free"),
-		"LXC Free SWAP",
+		"LXC *Used* SWAP (legacy, badly named)",
+		[]string{"node", "lxc"}, nil,
+	)
+	clusterLxcSwapUsed = prometheus.NewDesc(
+		prometheus.BuildFQName(nameSpace, "lxc", "swap_used"),
+		"LXC Used SWAP",
 		[]string{"node", "lxc"}, nil,
 	)
 	clusterLxcNetIn = prometheus.NewDesc(
@@ -423,7 +448,12 @@ var (
 	)
 	clusterQemuDiskFree = prometheus.NewDesc(
 		prometheus.BuildFQName(nameSpace, "qemu", "disk_free"),
-		"Free disk space for each QEMU VM",
+		"*Used* disk space for each QEMU VM (legacy, badly named)",
+		[]string{"node", "qemu"}, nil,
+	)
+	clusterQemuDiskUsed = prometheus.NewDesc(
+		prometheus.BuildFQName(nameSpace, "qemu", "disk_used"),
+		"Used disk space for each QEMU VM",
 		[]string{"node", "qemu"}, nil,
 	)
 	clusterQemuDiskRead = prometheus.NewDesc(
@@ -443,7 +473,12 @@ var (
 	)
 	clusterQemuRamFree = prometheus.NewDesc(
 		prometheus.BuildFQName(nameSpace, "qemu", "ram_free"),
-		"QEMU VM Free RAM",
+		"QEMU VM *Used* RAM (legacy, badly named)",
+		[]string{"node", "qemu"}, nil,
+	)
+	clusterQemuRamUsed = prometheus.NewDesc(
+		prometheus.BuildFQName(nameSpace, "qemu", "ram_used"),
+		"QEMU VM Used RAM",
 		[]string{"node", "qemu"}, nil,
 	)
 	clusterQemuNetIn = prometheus.NewDesc(
@@ -497,13 +532,19 @@ func (e Exporter) Collect(ch chan<- prometheus.Metric) {
 				clusterNodeRamTotal, prometheus.GaugeValue, jNumberToFloat(node.RamTotal), node.Name,
 			)
 			ch <- prometheus.MustNewConstMetric(
-				clusterNodeRamFree, prometheus.GaugeValue, jNumberToFloat(node.RamFree), node.Name,
+				clusterNodeRamFree, prometheus.GaugeValue, jNumberToFloat(node.RamUsed), node.Name,
+			)
+			ch <- prometheus.MustNewConstMetric(
+				clusterNodeRamUsed, prometheus.GaugeValue, jNumberToFloat(node.RamUsed), node.Name,
 			)
 			ch <- prometheus.MustNewConstMetric(
 				clusterNodeDiskTotal, prometheus.GaugeValue, jNumberToFloat(node.DiskTotal), node.Name,
 			)
 			ch <- prometheus.MustNewConstMetric(
-				clusterNodeDiskFree, prometheus.GaugeValue, jNumberToFloat(node.DiskFree), node.Name,
+				clusterNodeDiskFree, prometheus.GaugeValue, jNumberToFloat(node.DiskUsed), node.Name,
+			)
+			ch <- prometheus.MustNewConstMetric(
+				clusterNodeDiskUsed, prometheus.GaugeValue, jNumberToFloat(node.DiskUsed), node.Name,
 			)
 
 			rList, err := e.pve.GetNodeRRD(node.Name);
@@ -572,7 +613,10 @@ func (e Exporter) Collect(ch chan<- prometheus.Metric) {
 						clusterQemuDiskTotal, prometheus.GaugeValue, jNumberToFloat(qVM.DiskTotal), node.Name, qVM.Name,
 					)
 					ch <- prometheus.MustNewConstMetric(
-						clusterQemuDiskFree, prometheus.GaugeValue, jNumberToFloat(qVM.DiskFree), node.Name, qVM.Name,
+						clusterQemuDiskFree, prometheus.GaugeValue, jNumberToFloat(qVM.DiskUsed), node.Name, qVM.Name,
+					)
+					ch <- prometheus.MustNewConstMetric(
+						clusterQemuDiskUsed, prometheus.GaugeValue, jNumberToFloat(qVM.DiskUsed), node.Name, qVM.Name,
 					)
 					ch <- prometheus.MustNewConstMetric(
 						clusterQemuDiskRead, prometheus.GaugeValue, jNumberToFloat(qVM.DiskRead), node.Name, qVM.Name,
@@ -584,7 +628,10 @@ func (e Exporter) Collect(ch chan<- prometheus.Metric) {
 						clusterQemuRamTotal, prometheus.GaugeValue, jNumberToFloat(qVM.RamTotal), node.Name, qVM.Name,
 					)
 					ch <- prometheus.MustNewConstMetric(
-						clusterQemuRamFree, prometheus.GaugeValue, jNumberToFloat(qVM.RamFree), node.Name, qVM.Name,
+						clusterQemuRamFree, prometheus.GaugeValue, jNumberToFloat(qVM.RamUsed), node.Name, qVM.Name,
+					)
+					ch <- prometheus.MustNewConstMetric(
+						clusterQemuRamUsed, prometheus.GaugeValue, jNumberToFloat(qVM.RamUsed), node.Name, qVM.Name,
 					)
 					ch <- prometheus.MustNewConstMetric(
 						clusterQemuNetIn, prometheus.GaugeValue, jNumberToFloat(qVM.NetIn), node.Name, qVM.Name,
@@ -620,7 +667,10 @@ func (e Exporter) Collect(ch chan<- prometheus.Metric) {
 						clusterLxcDiskTotal, prometheus.GaugeValue, jNumberToFloat(lxc.DiskTotal), node.Name, lxc.Name,
 					)
 					ch <- prometheus.MustNewConstMetric(
-						clusterLxcDiskFree, prometheus.GaugeValue, jNumberToFloat(lxc.DiskFree), node.Name, lxc.Name,
+						clusterLxcDiskFree, prometheus.GaugeValue, jNumberToFloat(lxc.DiskUsed), node.Name, lxc.Name,
+					)
+					ch <- prometheus.MustNewConstMetric(
+						clusterLxcDiskUsed, prometheus.GaugeValue, jNumberToFloat(lxc.DiskUsed), node.Name, lxc.Name,
 					)
 					ch <- prometheus.MustNewConstMetric(
 						clusterLxcDiskRead, prometheus.GaugeValue, jNumberToFloat(lxc.DiskRead), node.Name, lxc.Name,
@@ -632,13 +682,19 @@ func (e Exporter) Collect(ch chan<- prometheus.Metric) {
 						clusterLxcRamTotal, prometheus.GaugeValue, jNumberToFloat(lxc.RamTotal), node.Name, lxc.Name,
 					)
 					ch <- prometheus.MustNewConstMetric(
-						clusterLxcRamFree, prometheus.GaugeValue, jNumberToFloat(lxc.RamFree), node.Name, lxc.Name,
+						clusterLxcRamFree, prometheus.GaugeValue, jNumberToFloat(lxc.RamUsed), node.Name, lxc.Name,
+					)
+					ch <- prometheus.MustNewConstMetric(
+						clusterLxcRamUsed, prometheus.GaugeValue, jNumberToFloat(lxc.RamUsed), node.Name, lxc.Name,
 					)
 					ch <- prometheus.MustNewConstMetric(
 						clusterLxcSwapTotal, prometheus.GaugeValue, jNumberToFloat(lxc.SwapTotal), node.Name, lxc.Name,
 					)
 					ch <- prometheus.MustNewConstMetric(
-						clusterLxcSwapFree, prometheus.GaugeValue, jNumberToFloat(lxc.SwapFree), node.Name, lxc.Name,
+						clusterLxcSwapFree, prometheus.GaugeValue, jNumberToFloat(lxc.SwapUsed), node.Name, lxc.Name,
+					)
+					ch <- prometheus.MustNewConstMetric(
+						clusterLxcSwapUsed, prometheus.GaugeValue, jNumberToFloat(lxc.SwapUsed), node.Name, lxc.Name,
 					)
 					ch <- prometheus.MustNewConstMetric(
 						clusterLxcNetIn, prometheus.GaugeValue, jNumberToFloat(lxc.NetIn), node.Name, lxc.Name,
