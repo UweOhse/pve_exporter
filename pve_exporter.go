@@ -74,6 +74,7 @@ type lxc struct {
 	SwapUsed  json.Number `json:"swap"`
 	NetIn     json.Number `json:"netin"`
 	NetOut    json.Number `json:"netout"`
+	CpuUsage  json.Number `json:"cpu"`
 }
 
 type lxcResponse struct {
@@ -93,6 +94,7 @@ type qemu struct {
 	RamUsed   json.Number `json:"mem"`
 	NetIn     json.Number `json:"netin"`
 	NetOut    json.Number `json:"netout"`
+	CpuUsage  json.Number `json:"cpu"`
 }
 
 type qemuResponse struct {
@@ -361,6 +363,11 @@ var (
 		"Total CPU count for each LXC",
 		[]string{"node", "lxc"}, nil,
 	)
+	clusterLxcCpuUsage = prometheus.NewDesc(
+		prometheus.BuildFQName(nameSpace, "lxc", "cpu_seconds"),
+		"Current CPU usage",
+		[]string{"node", "lxc"}, nil,
+	)
 	clusterLxcDiskTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(nameSpace, "lxc", "disk_total"),
 		"Disk size for each LXC",
@@ -439,6 +446,11 @@ var (
 	clusterQemuCpuCount = prometheus.NewDesc(
 		prometheus.BuildFQName(nameSpace, "qemu", "cpu_count"),
 		"Total CPU count for each QEMU VM",
+		[]string{"node", "qemu"}, nil,
+	)
+	clusterQemuCpuUsage = prometheus.NewDesc(
+		prometheus.BuildFQName(nameSpace, "qemu", "cpu_seconds"),
+		"Current CPU usage",
 		[]string{"node", "qemu"}, nil,
 	)
 	clusterQemuDiskTotal = prometheus.NewDesc(
@@ -610,6 +622,9 @@ func (e Exporter) Collect(ch chan<- prometheus.Metric) {
 						clusterQemuCpuCount, prometheus.GaugeValue, jNumberToFloat(qVM.CpuCount), node.Name, qVM.Name,
 					)
 					ch <- prometheus.MustNewConstMetric(
+						clusterQemuCpuUsage, prometheus.GaugeValue, jNumberToFloat(qVM.CpuUsage), node.Name, qVM.Name,
+					)
+					ch <- prometheus.MustNewConstMetric(
 						clusterQemuDiskTotal, prometheus.GaugeValue, jNumberToFloat(qVM.DiskTotal), node.Name, qVM.Name,
 					)
 					ch <- prometheus.MustNewConstMetric(
@@ -662,6 +677,9 @@ func (e Exporter) Collect(ch chan<- prometheus.Metric) {
 					)
 					ch <- prometheus.MustNewConstMetric(
 						clusterLxcCpuCount, prometheus.GaugeValue, jNumberToFloat(lxc.CpuCount), node.Name, lxc.Name,
+					)
+					ch <- prometheus.MustNewConstMetric(
+						clusterLxcCpuUsage, prometheus.GaugeValue, jNumberToFloat(lxc.CpuUsage), node.Name, lxc.Name,
 					)
 					ch <- prometheus.MustNewConstMetric(
 						clusterLxcDiskTotal, prometheus.GaugeValue, jNumberToFloat(lxc.DiskTotal), node.Name, lxc.Name,
